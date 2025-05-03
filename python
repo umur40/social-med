@@ -1,0 +1,153 @@
+# app.py
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import generate_password_hash, check_password_hash
+
+app = Flask(__name__)
+app.config['SECRET_KEY'] = 'your-secret-key'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///social.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
+
+# Veritabanı Modelleri
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password = db.Column(db.String(200), nullable=False)
+    profile_pic = db.Column(db.String(200), default='default.jpg')
+    bio = db.Column(db.String(300))
+    
+    friends = db.relationship('Friendship', foreign_keys='Friendship.user_id', backref='user', lazy='dynamic')
+    friend_of = db.relationship('Friendship', foreign_keys='Friendship.friend_id', backref='friend', lazy='dynamic')
+
+class Friendship(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    friend_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    status = db.Column(db.String(20), default='pending')  # pending, accepted, rejected
+
+class Message(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    sender_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    receiver_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    timestamp = db.Column(db.DateTime, server_default=db.func.now())
+    is_read = db.Column(db.Boolean, default=False)
+
+# Rotlar
+@app.route('/')
+def home():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    user = User.query.get(session['user_id'])
+    friends = Friendship.query.filter(
+        ((Friendship.user_id == user.id) | (Friendship.friend_id == user.id)) &
+        (Friendship.status == 'accepted')
+    ).all()
+    
+    friend_list = []
+    for f in friends:
+        if f.user_id == user.id:
+            friend = User.query.get(f.friend_id)
+        else:
+            friend = User.query.get(f.user_id)
+        friend_list.append(friend)
+    
+    return render_template('home.html', user=user, friends=friend_list)
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form['username']
+        email = request.form['email']
+        password = generate_password_hash(request.form['password'])
+        
+        if User.query.filter_by(username=username).first():
+            return 'Bu kullanıcı adı zaten alınmış'
+        if User.query.filter_by(email=email).first():
+            return 'Bu email zaten kayıtlı'
+            
+        new_user = User(username=username, email=email, password=password)
+        db.session.add(new_user)
+        db.session.commit()
+        
+        return redirect(url_for('login'))
+    return render_template('register.html')
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        
+        user = User.query.filter_by(username=username).first()
+        if user and check_password_hash(user.password, password):
+            session['user_id'] = user.id
+            return redirect(url_for('home'))
+        return 'Kullanıcı adı veya şifre hatalı'
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    session.pop('user_id', None)
+    return redirect(url_for('login'))
+
+@app.route('/search')
+def search():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    query = request.args.get('q', '')
+    users = User.query.filter(User.username.contains(query)).all()
+    return render_template('search.html', users=users)
+
+@app.route('/add_friend/<int:friend_id>')
+def add_friend(friend_id):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    
+    existing = Friendship.query.filter(
+        ((Friendship.user_id == session['user_id']) & (Friendship.friend_id == friend_id)) |
+        ((Friendship.user_id == friend_id) & (Friendship.friend_id == session['user_id']))
+    ).first()
+    
+    if not existing:
+        new_friendship = Friendship(user_id=session['user_id'], friend_id=friend_id)
+        db.session.add(new_friendship)
+        db.session.commit()
+    
+    return redirect(url_for('search'))
+
+@app.route('/messages/<int:friend_id>')
+def messages(friend_id):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    
+    friend = User.query.get(friend_id)
+    messages = Message.query.filter(
+        ((Message.sender_id == session['user_id']) & (Message.receiver_id == friend_id)) |
+        ((Message.sender_id == friend_id) & (Message.receiver_id == session['user_id']))
+    ).order_by(Message.timestamp).all()
+    
+    return render_template('messages.html', friend=friend, messages=messages)
+
+@app.route('/send_message', methods=['POST'])
+def send_message():
+    if 'user_id' not in session:
+        return jsonify({'status': 'error', 'message': 'Not logged in'})
+    
+    data = request.get_json()
+    new_message = Message(
+        sender_id=session['user_id'],
+        receiver_id=data['receiver_id'],
+        content=data['content']
+    )
+    db.session.add(new_message)
+    db.session.commit()
+    
+    return jsonify({'status': 'success'})
+
+if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()
+    app.run(debug=True)
