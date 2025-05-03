@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    <h2>{{ friend.username }} ile Mesajlaşma</h2>
+    
+    <div class="message-container" id="messageContainer">
+        {% for message in messages %}
+        <div class="message {% if message.sender_id == session['user_id'] %}sent{% else %}received{% endif %}">
+            <p>{{ message.content }}</p>
+            <small>{{ message.timestamp.strftime('%d.%m.%Y %H:%M') }}</small>
+        </div>
+        {% endfor %}
+    </div>
+    
+    <div>
+        <input type="text" id="messageInput" placeholder="Mesajınızı yazın..." style="width: 80%; padding: 10px;">
+        <button onclick="sendMessage()" class="btn">Gönder</button>
+    </div>
+</div>
+
+<script>
+    function sendMessage() {
+        const input = document.getElementById('messageInput');
+        const content = input.value.trim();
+        if (!content) return;
+        
+        fetch("{{ url_for('send_message') }}", {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                receiver_id: {{ friend.id }},
+                content: content
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                input.value = '';
+                location.reload();
+            }
+        });
+    }
+    
+    // Mesaj kutusunu en alta kaydır
+    window.onload = function() {
+        const container = document.getElementById('messageContainer');
+        container.scrollTop = container.scrollHeight;
+    };
+</script>
+{% endblock %}
