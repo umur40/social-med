@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card" style="max-width: 500px; margin: 50px auto;">
+    <h2>Giriş Yap</h2>
+    <form action="{{ url_for('login') }}" method="post">
+        <div style="margin-bottom: 15px;">
+            <label for="username">Kullanıcı Adı:</label>
+            <input type="text" id="username" name="username" required style="width: 100%; padding: 8px;">
+        </div>
+        <div style="margin-bottom: 15px;">
+            <label for="password">Şifre:</label>
+            <input type="password" id="password" name="password" required style="width: 100%; padding: 8px;">
+        </div>
+        <button type="submit" class="btn" style="width: 100%;">Giriş Yap</button>
+    </form>
+    <p style="margin-top: 15px;">Hesabınız yok mu? <a href="{{ url_for('register') }}">Kayıt Olun</a></p>
+</div>
+{% endblock %}
